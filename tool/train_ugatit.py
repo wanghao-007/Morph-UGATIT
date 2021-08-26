@@ -162,10 +162,9 @@ class Train:
         for iter_idx, sample in enumerate(progress_bar):
             losses_set = self.train_on_step(sample)
             for loss, meter in zip(losses_set, loss_meters):
-                loss = loss.item()
-                dist.all_reduce(loss)
+                dist.all_reduce(loss.detach())
                 loss = loss / self.args.gpus_num
-                meter.update(loss)
+                meter.update(loss.item())
             cur_lr = self.optim_G.param_groups[0]['lr']
             step = iter_idx + 1 + epoch * self.each_epoch_iters
             if self.rank == 0:
