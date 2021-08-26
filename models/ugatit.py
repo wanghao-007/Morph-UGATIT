@@ -206,12 +206,17 @@ class Generator(nn.Module):
 class CAM(nn.Module):
     def __init__(self, dim):
         super().__init__()
+#        print('in cam', dim)
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.gmp = nn.AdaptiveMaxPool2d(1)
-        self.weight = nn.Parameter(torch.FloatTensor(dim, 1))
-        nn.init.xavier_uniform_(self.weight)
-        self.cam_bias = nn.Parameter(torch.FloatTensor(1))
-        self.cam_bias.data.fill_(0)
+        self.weight_a = nn.Parameter(torch.FloatTensor(dim, 1))
+        self.weight_m = nn.Parameter(torch.FloatTensor(dim, 1))
+        nn.init.xavier_uniform_(self.weight_a)
+        nn.init.xavier_uniform_(self.weight_m)
+        self.cam_bias_a = nn.Parameter(torch.FloatTensor(1))
+        self.cam_bias_m = nn.Parameter(torch.FloatTensor(1))
+        self.cam_bias_a.data.fill_(0)
+        self.cam_bias_m.data.fill_(0)
 
         self.conv1x1 = nn.Sequential(
             nn.Conv2d(2 * dim, dim, 1, 1),
@@ -222,11 +227,11 @@ class CAM(nn.Module):
         gap = self.gap(e).view(b, c)
         gmp = self.gmp(e).view(b, c)
 
-        x_a = torch.matmul(gap, self.weight) + self.cam_bias  # for classfication loss
-        x_m = torch.matmul(gmp, self.weight) + self.cam_bias
+        x_a = torch.matmul(gap, self.weight_a) + self.cam_bias_a  # for classfication loss
+        x_m = torch.matmul(gmp, self.weight_m) + self.cam_bias_m
 
-        x_gap = e * (self.weight + self.cam_bias).view(1, c, 1, 1)
-        x_gmp = e * (self.weight + self.cam_bias).view(1, c, 1, 1)
+        x_gap = e * (self.weight_a.view(1, c, 1, 1)) + self.cam_bias_a
+        x_gmp = e * (self.weight_m.view(1, c, 1, 1)) + self.cam_bias_m
 
         x = torch.cat((x_gap, x_gmp), dim=1)
         x = self.conv1x1(x)
@@ -257,7 +262,7 @@ class Discriminator(nn.Module):
         ])
         self.local_base = nn.Sequential(*local)
         mult = mult * 2
-        self.local_cam = spectral_norm(CAM(mult*ndf))
+        self.local_cam = spectral_norm(spectral_norm(CAM(mult*ndf), name='weight_m'), name='weight_a')
         self.local_head = nn.Sequential(
             nn.ReflectionPad2d(1),
             spectral_norm(nn.Conv2d(mult*ndf, 1, 4, 1)),
@@ -284,7 +289,8 @@ class Discriminator(nn.Module):
         ])
         mult *= 2
         self.global_base = nn.Sequential(*global_)
-        self.global_cam = spectral_norm(CAM(mult*ndf))
+        #self.global_cam = spectral_norm(CAM(mult*ndf))
+        self.global_cam = spectral_norm(spectral_norm(CAM(mult*ndf), name='weight_m'), name='weight_a')
         self.global_head = nn.Sequential(
             nn.ReflectionPad2d(1),
             spectral_norm(nn.Conv2d(mult * ndf, 1, 4, 1)),
